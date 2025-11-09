@@ -11,15 +11,14 @@
 | [`./releases/`](./releases/)                 | 发布版本   | 各版本的可执行程序打包文件    |
 | [`./src/firmware/`](./src/firmware/)         | 下位机源码 | 嵌入式固件、硬件相关代码      |
 | [`./src/software/`](./src/software/)         | 上位机源码 | 桌面应用程序、软件代码        |
+| [`./tests/`](./tests/)                       | 测试代码   | 单元测试、集成测试、测试用例  |
+| [`./tools/`](./tools/)                       | 开发工具   | 辅助开发程序，开发工具        |
 
 ### 🧩1️⃣本地初始化 Git 仓库(首次使用) 
 
 ```bash
 #克隆团队仓库
 git clone https://github.com/san10086/Comprehensive-Design.git
-
-#同步远程仓库最新内容
-git pull origin main
 
 #创建自己的分支开发
 git checkout -b dev-xiaoming
