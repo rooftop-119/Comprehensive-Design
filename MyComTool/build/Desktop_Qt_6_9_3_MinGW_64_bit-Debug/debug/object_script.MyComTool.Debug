@@ -1,0 +1,12 @@
+debug/main.o
+debug/frmcomtool.o
+debug/main.o
+debug/frmcomtool.o
+debug/appconfig.o
+debug/appdata.o
+debug/qthelper.o
+debug/qthelperdata.o
+debug/frmcomtool.o
+debug/main.o
+debug/qrc_main.o
+debug/moc_frmcomtool.o
