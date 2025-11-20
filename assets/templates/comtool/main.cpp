@@ -18,7 +18,7 @@ int main(int argc, char *argv[])
     AppData::readDeviceData();
 
     frmComTool w;
-    w.setWindowTitle("UESTC信软学院数信方向63组综设demo V1.0");
+    w.setWindowTitle("UESTC信软学院数信方向63组综设demo V1.1");
     w.resize(900, 650);
     QtHelper::setFormInCenter(&w);
     w.show();

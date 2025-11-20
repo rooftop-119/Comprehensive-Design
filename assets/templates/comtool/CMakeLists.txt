@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 
 project(comtool LANGUAGES CXX)
 
-set(CMAKE_AUTOMOC_MOC_OPTIONS "-Muri=Qt6Compat")
-
 # ---- Qt 自动处理 ----
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -11,19 +9,15 @@ set(CMAKE_AUTORCC ON)
 
 # ---- Qt 模块 ----
 # Qt6 优先，如果是 Qt5 也能自动降级
-find_package(Qt6 COMPONENTS Core Gui Widgets Network PrintSupport SerialPort Core5Compat QUIET)
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
-find_package(Qt6 REQUIRED COMPONENTS Core)
-find_package(Qt6 REQUIRED COMPONENTS Core)
-find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(Qt6 COMPONENTS Core Gui Widgets Network SerialPort Core5Compat QUIET)
 if (NOT Qt6_FOUND)
-    find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network PrintSupport SerialPort)
+    find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets Network SerialPort)
 endif()
 
 # ---- 源文件 ----
 set(SOURCES
     main.cpp
-
+    head.h
     # api
     api/appconfig.cpp
     api/appconfig.h
@@ -37,39 +31,18 @@ set(SOURCES
     form/frmcomtool.cpp
     form/frmcomtool.h
     form/frmcomtool.ui
-    #lib
-    lib/qcustomplot/qcustomplot.cpp
-    lib/qcustomplot/qcustomplot.h
     # qrc
     qrc/main.qrc
 )
 
 # ---- 可执行文件 ----
-add_executable(${PROJECT_NAME} ${SOURCES}
-    global.h
-    head.h
-    databuffer.h databuffer.cpp
-    serialworker.h serialworker.cpp
-    filewriter.h filewriter.cpp
-    filereader.h filereader.cpp
-    filebuffer.h filebuffer.cpp
-    logger.h logger.cpp
-    serialpainter.h serialpainter.cpp
-    filepainter.h filepainter.cpp
+add_executable(${PROJECT_NAME} ${SOURCES})
 
-)
-
-
-target_link_libraries(comtool PRIVATE Qt6::Widgets)
-target_link_libraries(comtool PRIVATE Qt6::Core)
-target_link_libraries(comtool PRIVATE Qt6::Core)
-target_link_libraries(comtool PRIVATE Qt6::Core)
 # ---- 头文件路径 ----
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/api
     ${CMAKE_CURRENT_SOURCE_DIR}/form
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/qcustomplot
 )
 
 # ---- 链接 Qt 库 ----
@@ -81,7 +54,6 @@ if (Qt6_FOUND)
         Qt6::Network
         Qt6::SerialPort
         Qt6::Core5Compat
-        Qt6::PrintSupport
     )
 else()
     target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -90,7 +62,6 @@ else()
         Qt5::Widgets
         Qt5::Network
         Qt5::SerialPort
-        Qt5::PrintSupport
     )
 endif()
 

@@ -28,7 +28,7 @@ git checkout -b dev-xiaoming
 
 ### 🧩2️⃣提交更改到远程仓库
 
-拉取团队最新代码（如果中间远程仓库被别人更新了，请先跳转到🧩4️⃣，然后再回到此处）。
+拉取团队最新代码。
 
 ```bash
 git checkout dev-xiaoming
