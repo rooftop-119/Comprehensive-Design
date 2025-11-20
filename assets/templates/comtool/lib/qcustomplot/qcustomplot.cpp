@@ -21081,11 +21081,6 @@ void QCPGraph::addData(double key, double value)
   mDataContainer->add(QCPGraphData(key, value));
 }
 
-void QCPGraph::removeDataBefore(int x)
-{
-    mDataContainer->removeBefore(x);
-}
-
 /*!
   Implements a selectTest specific to this plottable's point geometry.
 

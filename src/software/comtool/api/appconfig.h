@@ -1,7 +1,8 @@
 ﻿#ifndef APPCONFIG_H
 #define APPCONFIG_H
 
-#include "head.h"
+#include <QObject>
+#include "global.h"
 
 class AppConfig
 {

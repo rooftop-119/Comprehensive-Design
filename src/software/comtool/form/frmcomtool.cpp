@@ -2,13 +2,24 @@
 #include "ui_frmcomtool.h"
 #include "qthelper.h"
 #include "qthelperdata.h"
+#include "qcustomplot.h"
+#include "serialworker.h"
+#include <QTimer>
+#include <QHBoxLayout>
+#include <QDateTime>
+#include <QTextStream>
+#include <QDebug>
 
-frmComTool::frmComTool(QWidget *parent) : QWidget(parent), ui(new Ui::frmComTool)
+frmComTool::frmComTool(QWidget *parent) :
+    QWidget(parent),
+    ui(new Ui::frmComTool)
 {
     ui->setupUi(this);
     this->initForm();
     this->initConfig();
     QtHelper::setFormInCenter(this);
+    this->init();
+    this->setUpPlot();
 }
 
 frmComTool::~frmComTool()
@@ -16,10 +27,148 @@ frmComTool::~frmComTool()
     delete ui;
 }
 
+void frmComTool::init()
+{
+    // ==========================
+    // 1. 先创建所有 Buffer
+    // ==========================
+    m_buffer = new DataBuffer(this);
+    filebuffer = new FileBuffer(this);
+
+    // ==========================
+    // 2. 创建 Logger（必须早创建）
+    // ==========================
+    logger = new Logger(ui->txtMain, this);
+
+
+    // ======================================================
+    // 3. 创建工作对象（必须在 moveToThread 前完成 new）
+    // ======================================================
+    worker = new SerialWorker();          // 串口工作线程对象
+    fileWriter = new FileWriter(m_buffer); // 文件写入器
+    fileReader = new FileReader(this); // 文件读取器（主线程运行）
+    filePainter = new FilePainter(m_plot, filebuffer, this);
+    serialPainter = new SerialPainter(m_plot, m_buffer, this);
+
+
+    // ======================================================
+    // 4. 创建两个线程
+    // ======================================================
+    serialThread = new QThread(this);
+    fileThread = new QThread(this);
+
+
+    // ======================================================
+    // 5. 将工作对象移入线程
+    // ======================================================
+    worker->moveToThread(serialThread);
+    fileWriter->moveToThread(fileThread);
+
+
+    // ======================================================
+    // 6. 线程结束时安全释放对象
+    // ======================================================
+    connect(serialThread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(fileThread, &QThread::finished, fileWriter, &QObject::deleteLater);
+
+    // 在窗体销毁时退出线程
+    connect(this, &QObject::destroyed, serialThread, [=]{
+        serialThread->quit();
+        serialThread->wait();
+    });
+
+    connect(this, &QObject::destroyed, fileThread, [=]{
+        fileThread->quit();
+        fileThread->wait();
+    });
+
+
+    // ======================================================
+    // 7. 设置 signal-slot（线程安全）
+    // ======================================================
+
+    // ------ SerialWorker 信号 ------
+    connect(this, &frmComTool::openPortRequest, worker, &SerialWorker::openPort);
+    connect(this, &frmComTool::closePortRequest, worker, &SerialWorker::closePort);
+    connect(this, &frmComTool::writeRequest, worker, &SerialWorker::writeData);
+
+    connect(worker, &SerialWorker::gotData, this, [=](const QByteArray &data){
+        readData(data);
+    });
+
+    connect(worker, &SerialWorker::portOpened, this, [=]{
+        logger->log(Logger::Type::System,
+                    QString("串口 %1 打开成功").arg(ui->cboxPortName->currentText()));
+        changeEnable(true);
+        ui->btnOpen->setText("关闭串口");
+    });
+
+    connect(worker, &SerialWorker::portClosed, this, [=]{
+        logger->log(Logger::Type::System,"串口已关闭");
+        changeEnable(false);
+        ui->btnOpen->setText("打开串口");
+    });
+
+
+    // ------ FileWriter 信号 ------
+    connect(fileWriter, &FileWriter::fileNameUpdate, this, [=]{
+        ui->file->clear();
+        ui->file->addItems(getRecentCsvFiles("logs/", 8));
+    });
+
+    // 串口关闭时通知写文件器 flush/stop
+    connect(worker, &SerialWorker::portClosed, fileWriter, &FileWriter::update);
+
+    // 串口打开时开始写入
+    connect(worker, &SerialWorker::portOpened, fileWriter, &FileWriter::start);
+
+
+    // ------ FileReader（不在线程）------
+    connect(this, &frmComTool::readFileRequest, fileReader, &FileReader::start);
+
+
+    // ------ FilePainter ------
+    connect(this, &frmComTool::readFileRequest, filePainter, &FilePainter::start);
+    //connect(filebuffer, &FileBuffer::noDataForPlot, filePainter, &FilePainter::stop);
+    connect(fileReader,&FileReader::linesRead,filebuffer,&FileBuffer::append);
+
+
+    // ------ SerialPainter ------
+    connect(worker, &SerialWorker::portOpened, serialPainter, &SerialPainter::start);
+
+    // 当串口关闭（UI上显示“打开串口”），停止绘图
+    connect(m_buffer, &DataBuffer::noDataForPlot, this, [=]{
+        if (ui->btnOpen->text() == "打开串口") {
+            serialPainter->stop();
+        }
+    });
+
+
+    // ======================================================
+    // 8. Logger 依赖注入（必须在 logger 创建之后）
+    // ======================================================
+    logger->support(m_buffer);
+    logger->support(filebuffer);
+    logger->support(fileWriter);
+    logger->support(fileReader);
+    logger->support(filePainter);
+    logger->support(serialPainter);
+    logger->support(worker);
+
+
+    // ======================================================
+    // 9. 最后启动线程（必须是最后一步）
+    // ======================================================
+    serialThread->start();
+    fileThread->start();
+}
+
+
 void frmComTool::initForm()
 {
+    m_plot = ui->customPlot;
+
     comOk = false;
-    com = new QSerialPort(this);
     sleepTime = 10;
     receiveCount = 0;
     sendCount = 0;
@@ -28,38 +177,15 @@ void frmComTool::initForm()
     ui->cboxSendInterval->addItems(AppData::Intervals);
     ui->cboxData->addItems(AppData::Datas);
 
-    //读取数据
-    timerRead = new QTimer(this);
-    timerRead->setInterval(100);
-    connect(timerRead, SIGNAL(timeout()), this, SLOT(readData()));
-
     //发送数据
-    timerSend = new QTimer(this);
-    connect(timerSend, SIGNAL(timeout()), this, SLOT(sendData()));
     connect(ui->btnSend, SIGNAL(clicked()), this, SLOT(sendData()));
-
-    //保存数据
-    timerSave = new QTimer(this);
-    connect(timerSave, SIGNAL(timeout()), this, SLOT(saveData()));
-    connect(ui->btnSave, SIGNAL(clicked()), this, SLOT(saveData()));
 
     ui->tabWidget->setCurrentIndex(0);
     changeEnable(false);
 
-    tcpOk = false;
-    socket = new QTcpSocket(this);
-    socket->abort();
-    connect(socket, SIGNAL(readyRead()), this, SLOT(readDataNet()));
-#if (QT_VERSION >= QT_VERSION_CHECK(6,0,0))
-    connect(socket, SIGNAL(errorOccurred(QAbstractSocket::SocketError)), this, SLOT(readErrorNet()));
-#else
-    connect(socket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(readErrorNet()));
-#endif
-
-    timerConnect = new QTimer(this);
-    connect(timerConnect, SIGNAL(timeout()), this, SLOT(connectNet()));
-    timerConnect->setInterval(3000);
-    timerConnect->start();
+    // connect(ui->file, &QComboBox::currentIndexChanged,
+    //         this, &frmComTool::on_files);
+    connect(ui->btnClear,&QPushButton::clicked,this,&frmComTool::on_btnClear_clicked);
 
 #ifdef __arm__
     ui->widgetRight->setFixedWidth(280);
@@ -68,8 +194,11 @@ void frmComTool::initForm()
 
 void frmComTool::initConfig()
 {
+    ui->file->clear();
+    ui->file->addItems(getRecentCsvFiles("logs/",8));
+
     QStringList comList;
-    for (int i = 1; i <= 20; i++) {
+    for (int i = 1; i <= 10; i++) {
         comList << QString("COM%1").arg(i);
     }
 
@@ -153,44 +282,16 @@ void frmComTool::initConfig()
     ui->cboxSaveInterval->setCurrentIndex(ui->cboxSaveInterval->findText(QString::number(AppConfig::SaveInterval)));
     connect(ui->cboxSaveInterval, SIGNAL(currentIndexChanged(int)), this, SLOT(saveConfig()));
 
-    timerSend->setInterval(AppConfig::SendInterval);
-    timerSave->setInterval(AppConfig::SaveInterval);
+    // timerSend->setInterval(AppConfig::SendInterval);
+    // timerSave->setInterval(AppConfig::SaveInterval);
 
-    if (AppConfig::AutoSend) {
-        timerSend->start();
-    }
+    // if (AppConfig::AutoSend) {
+    //     timerSend->start();
+    // }
 
-    if (AppConfig::AutoSave) {
-        timerSave->start();
-    }
-
-    //串口转网络部分
-    ui->cboxMode->setCurrentIndex(ui->cboxMode->findText(AppConfig::Mode));
-    connect(ui->cboxMode, SIGNAL(currentIndexChanged(int)), this, SLOT(saveConfig()));
-
-    ui->txtServerIP->setText(AppConfig::ServerIP);
-    connect(ui->txtServerIP, SIGNAL(textChanged(QString)), this, SLOT(saveConfig()));
-
-    ui->txtServerPort->setText(QString::number(AppConfig::ServerPort));
-    connect(ui->txtServerPort, SIGNAL(textChanged(QString)), this, SLOT(saveConfig()));
-
-    ui->txtListenPort->setText(QString::number(AppConfig::ListenPort));
-    connect(ui->txtListenPort, SIGNAL(textChanged(QString)), this, SLOT(saveConfig()));
-
-    QStringList values;
-    values << "0" << "10" << "50";
-
-    for (int i = 100; i < 1000; i = i + 100) {
-        values << QString("%1").arg(i);
-    }
-
-    ui->cboxSleepTime->addItems(values);
-
-    ui->cboxSleepTime->setCurrentIndex(ui->cboxSleepTime->findText(QString::number(AppConfig::SleepTime)));
-    connect(ui->cboxSleepTime, SIGNAL(currentIndexChanged(int)), this, SLOT(saveConfig()));
-
-    ui->ckAutoConnect->setChecked(AppConfig::AutoConnect);
-    connect(ui->ckAutoConnect, SIGNAL(stateChanged(int)), this, SLOT(saveConfig()));
+    // if (AppConfig::AutoSave) {
+    //     timerSave->start();
+    // }
 }
 
 void frmComTool::saveConfig()
@@ -212,13 +313,13 @@ void frmComTool::saveConfig()
     int sendInterval = ui->cboxSendInterval->currentText().toInt();
     if (sendInterval != AppConfig::SendInterval) {
         AppConfig::SendInterval = sendInterval;
-        timerSend->setInterval(AppConfig::SendInterval);
+        // timerSend->setInterval(AppConfig::SendInterval);
     }
 
     int saveInterval = ui->cboxSaveInterval->currentText().toInt();
     if (saveInterval != AppConfig::SaveInterval) {
         AppConfig::SaveInterval = saveInterval;
-        timerSave->setInterval(AppConfig::SaveInterval);
+        // timerSave->setInterval(AppConfig::SaveInterval);
     }
 
     AppConfig::Mode = ui->cboxMode->currentText();
@@ -243,104 +344,111 @@ void frmComTool::changeEnable(bool b)
     ui->ckAutoSave->setEnabled(b);
 }
 
-void frmComTool::append(int type, const QString &data, bool clear)
+QStringList frmComTool::getRecentCsvFiles(const QString &dirPath, int count)
 {
-    static int currentCount = 0;
-    static int maxCount = 100;
+    QStringList result;
 
-    if (clear) {
-        ui->txtMain->clear();
-        currentCount = 0;
-        return;
+    QDir dir(dirPath);
+    if (!dir.exists())
+        return result;
+
+    // 只获取 *.csv 文件
+    QStringList filters;
+    filters << "*.csv";
+
+    // 获取文件信息列表，按时间排序（Newest First）
+    QFileInfoList fileList = dir.entryInfoList(
+        filters,
+        QDir::Files | QDir::NoDotAndDotDot,
+        QDir::Time | QDir::Reversed // 默认时间降序：最新在前
+        );
+
+    // 只取最近 count 个
+    int n = qMin(count, fileList.size());
+    for (int i = 0; i < n; i++)
+    {
+        result << fileList[i].fileName();  // 只返回文件名
     }
 
-    if (currentCount >= maxCount) {
-        ui->txtMain->clear();
-        currentCount = 0;
-    }
-
-    if (!isShow) {
-        return;
-    }
-
-    //过滤回车换行符
-    QString strData = data;
-    strData = strData.replace("\r", "");
-    strData = strData.replace("\n", "");
-
-    //不同类型不同颜色显示
-    QString strType;
-    if (type == 0) {
-        strType = "串口发送 >>";
-        ui->txtMain->setTextColor(QColor("dodgerblue"));
-    } else if (type == 1) {
-        strType = "串口接收 <<";
-        ui->txtMain->setTextColor(QColor("red"));
-    } else if (type == 2) {
-        strType = "处理延时 >>";
-        ui->txtMain->setTextColor(QColor("gray"));
-    } else if (type == 3) {
-        strType = "正在校验 >>";
-        ui->txtMain->setTextColor(QColor("green"));
-    } else if (type == 4) {
-        strType = "网络发送 >>";
-        ui->txtMain->setTextColor(QColor(24, 189, 155));
-    } else if (type == 5) {
-        strType = "网络接收 <<";
-        ui->txtMain->setTextColor(QColor(255, 107, 107));
-    } else if (type == 6) {
-        strType = "提示信息 >>";
-        ui->txtMain->setTextColor(QColor(100, 184, 255));
-    }
-
-    strData = QString("时间[%1] %2 %3").arg(TIMEMS).arg(strType).arg(strData);
-    ui->txtMain->append(strData);
-    currentCount++;
+    return result;
 }
 
-void frmComTool::readData()
+void frmComTool::setUpPlot()
 {
-    if (com->bytesAvailable() <= 0) {
-        return;
-    }
 
-    QtHelper::sleep(sleepTime);
-    QByteArray data = com->readAll();
-    int dataLen = data.length();
-    if (dataLen <= 0) {
-        return;
-    }
+    m_plot->setNotAntialiasedElements(QCP::aeAll);
+    m_plot->setAntialiasedElements(QCP::aeNone);
+    m_plot->setBufferDevicePixelRatio(devicePixelRatioF());
 
-    if (isShow) {
-        QString buffer;
-        if (ui->ckHexReceive->isChecked()) {
-            buffer = QtHelperData::byteArrayToHexStr(data);
-        } else {
-            //buffer = QtHelperData::byteArrayToAsciiStr(data);
-            buffer = QString::fromLocal8Bit(data);
-        }
+    // 左侧电压曲线
+    m_plot->addGraph(m_plot->xAxis, m_plot->yAxis);
+    auto voltageGraph = m_plot->graph(0);
+    QColor voltageColor(76, 175, 80);              // 绿色 #4CAF50
+    QColor voltageFill(76, 175, 80, 40);           // 淡绿色填充（透明 40）
 
-        //启用调试则模拟调试数据
-        if (ui->ckDebug->isChecked()) {
-            int count = AppData::Keys.count();
-            for (int i = 0; i < count; i++) {
-                if (buffer.startsWith(AppData::Keys.at(i))) {
-                    sendData(AppData::Values.at(i));
-                    break;
-                }
+    voltageGraph->setPen(QPen(voltageColor, 1));
+    voltageGraph->setBrush(QBrush(voltageFill));   // 填充曲线下方区域
+    voltageGraph->setLineStyle(QCPGraph::lsLine);
+
+    m_plot->yAxis->setLabel("Voltage (V)");
+    m_plot->yAxis->setRange(0, 5);
+
+    // 右侧温度曲线
+    m_plot->yAxis2->setVisible(true);
+    m_plot->yAxis2->setLabel("Temperature (°C)");
+    m_plot->yAxis2->setRange(0, 120);
+
+    m_plot->addGraph(m_plot->xAxis, m_plot->yAxis2);
+    auto tempGraph = m_plot->graph(1);
+    QColor tempColor(33, 150, 243);                 // 蓝色 #2196F3
+    QColor tempFill(33, 150, 243, 30);              // 浅蓝色填充
+
+    tempGraph->setPen(QPen(tempColor, 1));
+    tempGraph->setBrush(QBrush(tempFill));           // 填充曲线区域
+    tempGraph->setLineStyle(QCPGraph::lsLine);
+
+    // 时间轴
+    QSharedPointer<QCPAxisTickerDateTime> ticker(new QCPAxisTickerDateTime);
+    ticker->setDateTimeFormat("hh:mm:ss");
+    ticker->setDateTimeSpec(Qt::LocalTime);
+    m_plot->xAxis->setTicker(ticker);
+
+    double now = QDateTime::currentMSecsSinceEpoch() / 1000.0;
+    m_plot->xAxis->setRange(now - m_timeWindowSec, now);
+
+    voltageGraph->data()->setAutoSqueeze(true);
+    tempGraph->data()->setAutoSqueeze(true);
+
+    m_plot->legend->setVisible(true);
+    voltageGraph->setName("Voltage");
+    tempGraph->setName("Temperature");
+
+    m_plot->replot();
+}
+
+void frmComTool::readData(const QByteArray &data)
+{
+    // ---- 1. 转为字符串显示 ----
+    QString buffer = QtHelperData::byteArrayToHexStr(data);
+
+    // ---- 2. 调试功能 ----
+    if (ui->ckDebug->isChecked()) {
+        int count = AppData::Keys.count();
+        for (int i = 0; i < count; i++) {
+            if (buffer.startsWith(AppData::Keys.at(i))) {
+                sendData(AppData::Values.at(i));
+                break;
             }
         }
-
-        append(1, buffer);
-        receiveCount = receiveCount + data.size();
-        ui->btnReceiveCount->setText(QString("接收 : %1 字节").arg(receiveCount));
-
-        //启用网络转发则调用网络发送数据
-        if (tcpOk) {
-            socket->write(data);
-            append(4, QString(buffer));
-        }
     }
+
+    // ---- 4. 接收计数统计 ----
+    receiveCount += data.size();
+    ui->btnReceiveCount->setText(QString("接收 : %1 字节").arg(receiveCount));
+
+    // ---- 6. 加入数据缓存（带时间戳） ---
+    double now = QDateTime::currentMSecsSinceEpoch() / 1000.0;
+    m_buffer->append(now,data);
 }
 
 void frmComTool::sendData()
@@ -361,123 +469,36 @@ void frmComTool::sendData()
 
 void frmComTool::sendData(QString data)
 {
-    if (com == 0 || !com->isOpen()) {
+    if (!worker || !worker->isOpen() || !worker->isOpen()) {
+        logger->log(Logger::Type::SerialSend,"串口未打开，无法发送");
         return;
     }
 
-    //短信猫调试
-    if (data.startsWith("AT")) {
-        data += "\r";
-    }
+    QByteArray buffer = data.toUtf8();
+    buffer = QtHelperData::hexStrToByteArray(data);
 
-    QByteArray buffer;
-    if (ui->ckHexSend->isChecked()) {
-        buffer = QtHelperData::hexStrToByteArray(data);
-    } else {
-        buffer = QtHelperData::asciiStrToByteArray(data);
-    }
+    //调用 SerialWorker 的封装
+    emit writeRequest(buffer);
 
-    com->write(buffer);
-    append(0, data);
-    sendCount = sendCount + buffer.size();
+    sendCount += buffer.size();
     ui->btnSendCount->setText(QString("发送 : %1 字节").arg(sendCount));
-}
-
-void frmComTool::saveData()
-{
-    QString tempData = ui->txtMain->toPlainText();
-    if (tempData.isEmpty()) {
-        return;
-    }
-
-    QDateTime now = QDateTime::currentDateTime();
-    QString name = now.toString("yyyy-MM-dd-HH-mm-ss");
-    QString fileName = QString("%1/%2.txt").arg(QtHelper::appPath()).arg(name);
-
-    QFile file(fileName);
-    file.open(QFile::WriteOnly | QIODevice::Text);
-    QTextStream out(&file);
-    out << tempData;
-    file.close();
-
-    on_btnClear_clicked();
 }
 
 void frmComTool::on_btnOpen_clicked()
 {
     if (ui->btnOpen->text() == "打开串口") {
-        // 如果com已经存在，先关闭并删除
-        if (com) {
-            disconnect(com, &QSerialPort::readyRead, this, &frmComTool::readData);
-            com->close();
-            com->deleteLater();
-            com = nullptr;
-        }
-
-        com = new QSerialPort(this);
-        com->setPortName(ui->cboxPortName->currentText());
-
-        if (com->open(QIODevice::ReadWrite)) {
-            comOk = true;
-
-            // 设置波特率
-            com->setBaudRate(ui->cboxBaudRate->currentText().toInt());
-
-            // 设置数据位
-            switch (ui->cboxDataBit->currentText().toInt()) {
-            case 5: com->setDataBits(QSerialPort::Data5); break;
-            case 6: com->setDataBits(QSerialPort::Data6); break;
-            case 7: com->setDataBits(QSerialPort::Data7); break;
-            default: com->setDataBits(QSerialPort::Data8); break;
-            }
-
-            // 设置校验位
-            if (ui->cboxParity->currentText() == "无")
-                com->setParity(QSerialPort::NoParity);
-            else if (ui->cboxParity->currentText() == "奇")
-                com->setParity(QSerialPort::OddParity);
-            else if (ui->cboxParity->currentText() == "偶")
-                com->setParity(QSerialPort::EvenParity);
-
-            // 设置停止位
-            double stopBit = ui->cboxStopBit->currentText().toDouble();
-            if (stopBit == 1) com->setStopBits(QSerialPort::OneStop);
-            else if (stopBit == 1.5) com->setStopBits(QSerialPort::OneAndHalfStop);
-            else com->setStopBits(QSerialPort::TwoStop);
-
-            // 设置流控
-            com->setFlowControl(QSerialPort::NoFlowControl);
-
-            // 事件驱动模式，连接 readyRead 信号
-            connect(com, &QSerialPort::readyRead, this, &frmComTool::readData);
-
-            // 更新UI
-            changeEnable(true);
-            ui->btnOpen->setText("关闭串口");
-
-            append(6, QString("串口 %1 打开成功").arg(ui->cboxPortName->currentText()));
-        } else {
-            comOk = false;
-            append(6, QString("串口打开失败: %1").arg(com->errorString()));
-        }
-
-    } else { // 关闭串口
-        if (com) {
-            disconnect(com, &QSerialPort::readyRead, this, &frmComTool::readData);
-            com->close();
-            com->deleteLater();
-            com = nullptr;
-        }
-
-        comOk = false;
-        changeEnable(false);
-        ui->btnOpen->setText("打开串口");
-        on_btnClear_clicked();
-
-        append(6, "串口已关闭");
+        emit openPortRequest(
+            ui->cboxPortName->currentText(),
+            ui->cboxBaudRate->currentText().toInt(),
+            ui->cboxDataBit->currentText().toInt(),
+            ui->cboxParity->currentText(),
+            ui->cboxStopBit->currentText().toDouble()
+            );
+        serialPainter->start();
+    } else {
+        emit closePortRequest();
     }
 }
-
 
 void frmComTool::on_btnSendCount_clicked()
 {
@@ -502,71 +523,20 @@ void frmComTool::on_btnStopShow_clicked()
     }
 }
 
-void frmComTool::on_btnData_clicked()
-{
-    QString fileName = QString("%1/%2").arg(QtHelper::appPath()).arg("send.txt");
-    QFile file(fileName);
-    if (!file.exists()) {
-        return;
-    }
-
-    if (ui->btnData->text() == "管理数据") {
-        ui->txtMain->setReadOnly(false);
-        ui->txtMain->clear();
-        file.open(QFile::ReadOnly | QIODevice::Text);
-        QTextStream in(&file);
-        ui->txtMain->setText(in.readAll());
-        file.close();
-        ui->btnData->setText("保存数据");
-    } else {
-        ui->txtMain->setReadOnly(true);
-        file.open(QFile::WriteOnly | QIODevice::Text);
-        QTextStream out(&file);
-        out << ui->txtMain->toPlainText();
-        file.close();
-        ui->txtMain->clear();
-        ui->btnData->setText("管理数据");
-        AppData::readSendData();
-    }
-}
-
 void frmComTool::on_btnClear_clicked()
 {
-    append(0, "", true);
-}
-
-void frmComTool::on_btnStart_clicked()
-{
-    if (ui->btnStart->text() == "启动") {
-        if (AppConfig::ServerIP == "" || AppConfig::ServerPort == 0) {
-            append(6, "IP地址和远程端口不能为空");
-            return;
-        }
-
-        socket->connectToHost(AppConfig::ServerIP, AppConfig::ServerPort);
-        if (socket->waitForConnected(100)) {
-            ui->btnStart->setText("停止");
-            append(6, "连接服务器成功");
-            tcpOk = true;
-        }
-    } else {
-        socket->disconnectFromHost();
-        if (socket->state() == QAbstractSocket::UnconnectedState || socket->waitForDisconnected(100)) {
-            ui->btnStart->setText("启动");
-            append(6, "断开服务器成功");
-            tcpOk = false;
-        }
-    }
+    QString text = ui->file->currentText();
+    emit readFileRequest(text,250);
 }
 
 void frmComTool::on_ckAutoSend_stateChanged(int arg1)
 {
     if (arg1 == 0) {
         ui->cboxSendInterval->setEnabled(false);
-        timerSend->stop();
+        // timerSend->stop();
     } else {
         ui->cboxSendInterval->setEnabled(true);
-        timerSend->start();
+        // timerSend->start();
     }
 }
 
@@ -574,54 +544,9 @@ void frmComTool::on_ckAutoSave_stateChanged(int arg1)
 {
     if (arg1 == 0) {
         ui->cboxSaveInterval->setEnabled(false);
-        timerSave->stop();
+        // timerSave->stop();
     } else {
         ui->cboxSaveInterval->setEnabled(true);
-        timerSave->start();
+        // timerSave->start();
     }
-}
-
-void frmComTool::connectNet()
-{
-    if (!tcpOk && AppConfig::AutoConnect && ui->btnStart->text() == "启动") {
-        if (AppConfig::ServerIP != "" && AppConfig::ServerPort != 0) {
-            socket->connectToHost(AppConfig::ServerIP, AppConfig::ServerPort);
-            if (socket->waitForConnected(100)) {
-                ui->btnStart->setText("停止");
-                append(6, "连接服务器成功");
-                tcpOk = true;
-            }
-        }
-    }
-}
-
-void frmComTool::readDataNet()
-{
-    if (socket->bytesAvailable() > 0) {
-        QtHelper::sleep(AppConfig::SleepTime);
-        QByteArray data = socket->readAll();
-
-        QString buffer;
-        if (ui->ckHexReceive->isChecked()) {
-            buffer = QtHelperData::byteArrayToHexStr(data);
-        } else {
-            buffer = QtHelperData::byteArrayToAsciiStr(data);
-        }
-
-        append(5, buffer);
-
-        //将收到的网络数据转发给串口
-        if (comOk) {
-            com->write(data);
-            append(0, buffer);
-        }
-    }
-}
-
-void frmComTool::readErrorNet()
-{
-    ui->btnStart->setText("启动");
-    append(6, QString("连接服务器失败,%1").arg(socket->errorString()));
-    socket->disconnectFromHost();
-    tcpOk = false;
 }

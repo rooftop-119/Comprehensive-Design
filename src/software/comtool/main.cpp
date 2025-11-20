@@ -7,6 +7,8 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     a.setWindowIcon(QIcon(":/main.ico"));
 
+    qRegisterMetaType<Logger::Type>("Logger::Type");
+
     //设置编码以及加载中文翻译文件
     QtHelper::initAll();
     //读取配置文件
@@ -18,7 +20,7 @@ int main(int argc, char *argv[])
     AppData::readDeviceData();
 
     frmComTool w;
-    w.setWindowTitle("UESTC信软学院数信方向63组综设demo V1.1");
+    w.setWindowTitle("UESTC信软学院数信方向63组综设demo V1.2");
     w.resize(900, 650);
     QtHelper::setFormInCenter(&w);
     w.show();
