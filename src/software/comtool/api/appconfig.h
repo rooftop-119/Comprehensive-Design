@@ -8,8 +8,6 @@ class AppConfig
 {
 public:
     static QString ConfigFile;          //配置文件路径
-    static QString SendFileName;        //发送配置文件名
-    static QString DeviceFileName;      //模拟设备数据文件名
 
     static QString PortName;            //串口号
     static int BaudRate;                //波特率
@@ -17,22 +15,27 @@ public:
     static QString Parity;              //校验位
     static double StopBit;              //停止位
 
-    static bool HexSend;                //16进制发送
-    static bool HexReceive;             //16进制接收
-    static bool Debug;                  //模拟设备
-    static bool AutoClear;              //自动清空
-
-    static bool AutoSend;               //自动发送
-    static int SendInterval;            //自动发送间隔
     static bool AutoSave;               //自动保存
-    static int SaveInterval;            //自动保存间隔
+    static int SaveInterval;            // 文件写入间隔，默认 5000ms
 
-    static QString Mode;                //转换模式
-    static QString ServerIP;            //服务器IP
-    static int ServerPort;              //服务器端口
-    static int ListenPort;              //监听端口
-    static int SleepTime;               //延时时间
-    static bool AutoConnect;            //自动重连
+    // 缓冲区配置
+    static int buffer_capacity;      // 默认 200
+
+    // 定时器配置
+    static int painter_interval;     // 绘图刷新间隔，默认 50ms
+    static int reader_interval;      // 文件读取间隔，默认 100ms
+    static int linesPerTick;
+
+    // 命令超时配置
+    static int COMMAND_TIMEOUT_MS;      // 命令超时时间，默认 3000ms
+
+    // 显示配置
+    static double plot_time_window;  // 绘图时间窗口，默认 10s
+    static int plot_max_points;      // 最大绘图点数，默认 20000
+    static int plot_batch_size;      // 每次绘图批量，默认 6
+
+    // 日志配置
+    static int logger_max_lines;     // 日志最大行数，默认 100
 
     //读写配置参数
     static void readConfig();           //读取配置参数
