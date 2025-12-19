@@ -3,8 +3,7 @@
 
 Logger::Logger(QTextEdit* board, QObject *parent)
     : QObject(parent),
-    board(board),
-    maxLines(100)        // 最大行数，可根据需求调
+    board(board)
 {
 }
 
@@ -70,4 +69,6 @@ void Logger::log(Type type, const QString &msg, bool clear)
         c.removeSelectedText();
         c.deleteChar();  // 删除额外换行
     }
+
+    cursor.movePosition(QTextCursor::End);
 }

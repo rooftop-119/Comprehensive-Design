@@ -2,93 +2,122 @@
 #define FRMCOMTOOL_H
 
 #include <QWidget>
-#include "qtcpsocket.h"
-#include "head.h"
-#include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QThread>
-#include "DataBuffer.h"
-#include <QFile>
-#include "filewriter.h"
-#include "filereader.h"
-#include "filebuffer.h"
-#include "logger.h"
-#include "filepainter.h"
-#include "serialpainter.h"
-class QCustomPlot;
-class QTimer;
-class SerialWorker;
-class FileWriter;
-class FileReader;
-class FileBuffer;
 
-namespace Ui
-{
+// 前向声明
+class QCustomPlot;
+class QLCDNumber;
+class QDial;
+
+// 核心模块
+class SerialTransport;
+class FileTransport;
+class Commander;
+class DataManager;
+class FrameDispatcher;
+class FrameFactory;
+class Logger;
+class FileManager;
+class CSVReader;
+
+// 实体头文件
+#include "entity/frametype.h"
+#include "entity/errortype.h"
+#include "transport/itransport.h"
+
+namespace Ui {
 class frmComTool;
 }
 
-class frmComTool : public QWidget
-{
+class frmComTool : public QWidget {
     Q_OBJECT
 
 public:
-    explicit frmComTool(QWidget *parent = 0);
+    explicit frmComTool(QWidget *parent = nullptr);
     ~frmComTool();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     Ui::frmComTool *ui;
 
+    // UI组件引用
     QCustomPlot *m_plot = nullptr;
-    Logger* logger = nullptr;
+    QLCDNumber *m_voltLcd = nullptr;
+    QLCDNumber *m_tempLcd = nullptr;
+    QDial *m_voltDial = nullptr;
+    QDial *m_tempDial = nullptr;
 
-    SerialWorker *worker = nullptr;
-    DataBuffer *m_buffer = nullptr;
-    FileBuffer *filebuffer = nullptr;
-    FileWriter *fileWriter = nullptr;
-    FileReader *fileReader = nullptr;
-    FilePainter *filePainter = nullptr;
-    SerialPainter *serialPainter = nullptr;
+    // 核心业务模块
+    SerialTransport *m_serialTransport = nullptr;
+    FileTransport *m_fileTransport = nullptr;
+    Commander *m_commander = nullptr;
+    DataManager *m_dataManager = nullptr;
+    FrameDispatcher *m_dispatcher = nullptr;
+    FrameFactory *m_factory = nullptr;
+    Logger *m_logger = nullptr;
+    FileManager *m_fileManager = nullptr;
+    CSVReader *m_csvReader = nullptr;
 
-    QThread* serialThread;
-    QThread* fileThread;
+    // 线程
+    QThread *m_serialThread = nullptr;
 
-    bool comOk;                 //串口是否打开
-    int sleepTime;              //接收延时时间
-    int sendCount;              //发送数据计数
-    int receiveCount;           //接收数据计数
-    bool isShow;                //是否显示数据
+    // 状态变量
+    enum class WorkMode {
+        Idle,           // 空闲
+        SerialSampling, // 串口采样中
+        FilePlayback    // 文件回放中
+    };
+
+    WorkMode m_workMode = WorkMode::Idle;
+    qint64 m_sendCount = 0;
+    qint64 m_receiveCount = 0;
 
 private:
-    double m_timeWindowSec = 10.0;
-    QStringList getRecentCsvFiles(const QString &dirPath, int count);
-    void init();
-    void setUpPlot();
+    // 初始化函数
+    void initializeUI();
+    void initializeModules();
+    void initializeConnections();
+    void initializeSerialPortOptions();
+    void initializeDashboardStyles();
+    void loadHistoryFiles();
 
-signals:
-    void openPortRequest(const QString &portName, int baudRate, int dataBits,
-                         const QString &parity, double stopBits);
-    void closePortRequest();
-    void writeRequest(const QByteArray &data);
-    void readFileRequest(const QString &filename,int intervalMs);
-
-private slots:
-    void initForm();            //初始化窗体数据
-    void initConfig();          //初始化配置文件
-    void saveConfig();          //保存配置文件
-    void readData(const QByteArray &data);            //读取串口数据
-    void sendData();            //发送串口数据
-    void sendData(QString data);//发送串口数据带参数
-    void changeEnable(bool b);  //改变状态
+    // 辅助函数
+    void updateUIState(WorkMode mode);
+    void saveConfig();
+    QString getSelectedFilePath() const;
 
 private slots:
-    void on_btnOpen_clicked();
-    void on_btnStopShow_clicked();
-    void on_btnSendCount_clicked();
-    void on_btnReceiveCount_clicked();
+    // 串口操作
+    void onOpenSerialPort();
+    void onCloseSerialPort();
+    void onSerialStateChanged(ITransport::State state);
+    void onSerialError(const QString &error);
 
-    void on_btnClear_clicked();
-    void on_ckAutoSend_stateChanged(int arg1);
-    void on_ckAutoSave_stateChanged(int arg1);
+    // 命令操作
+    void onStartSampling();
+    void onStopSampling();
+    void onCommandCompleted(FrameType cmdType, int seq, ErrorType error);
+    void onCommandTimeout(FrameType cmdType, int seq);
+
+    // 文件操作
+    void onStartPlayback();
+    void onStopPlayback();
+    void onPlaybackFinished();
+    void onRefreshFileList();
+
+    // 数据统计更新
+    void onBytesStatisticsUpdate();
+    void onBufferStatusUpdate(int used, int capacity);
+
+    // UI按钮槽（自动连接）
+    void on_pushButtonOpen_clicked();
+    void on_pushButtonSend_clicked();
+    void on_pushButtonDraw_clicked();
+    void on_pushButtonClear_clicked();
+    //void on_pushButtonRefreshFiles_clicked();
 };
 
 #endif // FRMCOMTOOL_H

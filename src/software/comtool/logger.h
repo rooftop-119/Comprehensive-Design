@@ -6,6 +6,19 @@
 #include <QTextCursor>
 #include <QDateTime>
 #include <QColor>
+#include "api/appconfig.h"
+
+typedef struct Sample
+{
+    double timestamp;
+    int seq = 0;
+
+    double voltage = 0.0;
+    double temperature = 0.0;
+
+    bool hasVoltage = false;
+    bool hasTemperature = false;
+}Sample;
 
 class Logger : public QObject
 {
@@ -30,7 +43,7 @@ public slots:
 
 private:
     QTextEdit* board;
-    int maxLines;
+    int maxLines = AppConfig::logger_max_lines;
 
     struct LogMeta {
         const char* prefix;
