@@ -18,6 +18,15 @@ DataManager::~DataManager() {
     stopRecording();
 }
 
+void DataManager::updateLCDs(double v,double t) {
+    Sample s;
+    s.voltage = v;
+    s.temperature = t;
+    s.hasVoltage = v==0?false:true;
+    s.hasTemperature = t==0?false:true;
+    m_visualizer->updateLCDs(s);
+}
+
 void DataManager::initialize(QCustomPlot* plot,
                              QLCDNumber* tLcd, QLCDNumber* vLcd,
                              QDial* tDial, QDial* vDial)
@@ -71,7 +80,7 @@ void DataManager::stopRecording() {
     if (m_visualizer) m_visualizer->stop();
     if (m_writer) m_writer->stop();
 
-    emit log(Logger::Type::System, "数据记录已停止");
+    if(m_enableStorage) emit log(Logger::Type::System, "数据记录已停止");
 }
 
 void DataManager::pauseDisplay() {
@@ -123,4 +132,8 @@ void DataManager::onSampleReceivedDirect(const Sample& sample) {
 
 void DataManager::clearChart(){
     m_visualizer->clear();
+}
+
+void DataManager::updatePaintConf(){
+    m_visualizer->updateConf();
 }

@@ -31,6 +31,10 @@ public:
 
     void updateWithData(const QVector<Sample>& samples);
 
+    void setAutoRescaleY(bool onlyEnlarge,bool includeErrorBars);
+    void updateConf();
+    void updateLCDs(const Sample& latest);
+
 signals:
     void log(Logger::Type type, const QString& msg, bool clear = false);
 
@@ -40,7 +44,6 @@ private slots:
 private:
     void setupChart();
     void updateChart(const QVector<Sample>& samples);
-    void updateLCDs(const Sample& latest);
     void updateDials(const Sample& latest);
     void removeOldData(double currentTime);
 
@@ -56,7 +59,6 @@ private:
 
     ChartConfig m_config;
 
-    //
     QCPGraph* m_voltGraph = nullptr;
     QCPGraph* m_tempGraph = nullptr;
 };

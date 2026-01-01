@@ -115,6 +115,13 @@ QGroupBox::title {
         </property>
        </spacer>
       </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonFresh">
+        <property name="text">
+         <string>刷新</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -275,7 +282,7 @@ QGroupBox::title {
           <widget class="QComboBox" name="comboBoxFiles"/>
          </item>
          <item>
-          <widget class="QPushButton" name="pushButtonDraw">
+          <widget class="ClickableButton" name="pushButtonDraw">
            <property name="text">
             <string>开始</string>
            </property>
@@ -482,6 +489,11 @@ QGroupBox::title {
    <extends>QWidget</extends>
    <header>qcustomplot.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>ClickableButton</class>
+   <extends>QPushButton</extends>
+   <header>clickablebutton.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

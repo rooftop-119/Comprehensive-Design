@@ -129,6 +129,7 @@ add_executable(${PROJECT_NAME} WIN32
     ${SOURCES}
     ${HEADERS}
     ${RESOURCES}
+    component/clickablebutton.h component/clickablebutton.cpp
 )
 
 # ==== 链接 Qt 库（一次性链接所有需要的模块）====
@@ -154,7 +155,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # ==== 输出路径 ====
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../comtool-2.0"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../comtool-2.4.1"
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../lib"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../lib"
 )

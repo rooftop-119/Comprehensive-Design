@@ -11,18 +11,17 @@ quint8 FrameFactory::calculateCRC8(const QByteArray& data) {
     quint8 crc = 0x00;
     const quint8 polynomial = 0x07;
 
-    for (char byte : data) {
-        crc ^= static_cast<quint8>(byte);
-
-        for (int i = 0; i < 8; i++) {
-            if (crc & 0x01) {
-                crc = (crc >> 1) ^ polynomial;
+    for (char ch : data) {
+        quint8 byte = static_cast<quint8>(ch);
+        crc ^= byte;
+        for (int i = 0; i < 8; ++i) {
+            if (crc & 0x80) {
+                crc = (crc << 1) ^ polynomial;
             } else {
-                crc >>= 1;
+                crc <<= 1;
             }
         }
     }
-
     return crc;
 }
 

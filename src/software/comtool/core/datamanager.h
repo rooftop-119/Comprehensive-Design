@@ -22,6 +22,8 @@ public:
     void pauseDisplay();
     void resumeDisplay();
     void clearChart();
+    void updatePaintConf();
+    void updateLCDs(double v,double t);
 
 public slots:
     void onSampleReceived(const Sample& sample);

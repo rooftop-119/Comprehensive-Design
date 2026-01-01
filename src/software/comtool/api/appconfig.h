@@ -30,12 +30,24 @@ public:
     static int COMMAND_TIMEOUT_MS;      // 命令超时时间，默认 3000ms
 
     // 显示配置
+    static bool antialiasing;
     static double plot_time_window;  // 绘图时间窗口，默认 10s
     static int plot_max_points;      // 最大绘图点数，默认 20000
     static int plot_batch_size;      // 每次绘图批量，默认 6
+    static bool autoRescaleY;
+    static bool autoRescaleY_onlyEnlarge;
+    static double voltMin;
+    static double voltMax;
+    static double tempMin;
+    static double tempMax;
+    static double voltHighThreshold;
+    static double voltLowThreshold;
+    static double tempHighThreshold;
+    static double tempLowThreshold;
 
     // 日志配置
     static int logger_max_lines;     // 日志最大行数，默认 100
+    static bool DataShow;
 
     //读写配置参数
     static void readConfig();           //读取配置参数

@@ -20,11 +20,10 @@ std::shared_ptr<BaseFrame> FrameParser::parse(const QByteArray& raw)
     case FrameType::DataVoltage: {
         quint16 voltage = qFromLittleEndian<quint16>(raw.constData() + start + 3);
         double volt = voltage / 1000.0;
-
         return std::make_shared<DataVoltageFrame>(now, seq, volt, crcOk);
     }
     case FrameType::DataTemp: {
-        qint16 temperature = qFromLittleEndian<qint16>(raw.constData() + start + 5);
+        qint16 temperature = qFromLittleEndian<qint16>(raw.constData() + start + 3);
         double temp = temperature / 100.0;
 
         return std::make_shared<DataTempFrame>(now, seq, temp, crcOk);

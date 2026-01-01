@@ -76,6 +76,8 @@ private:
     qint64 m_receiveCount = 0;
 
 private:
+
+    QMetaObject::Connection conV,conT;
     // 初始化函数
     void initializeUI();
     void initializeModules();
@@ -115,8 +117,10 @@ private slots:
     // UI按钮槽（自动连接）
     void on_pushButtonOpen_clicked();
     void on_pushButtonSend_clicked();
-    void on_pushButtonDraw_clicked();
+    void on_pushButtonDraw_singleClicked();
+    void on_pushButtonDraw_doubleClicked();
     void on_pushButtonClear_clicked();
+    void on_pushButtonFresh_clicked();
     //void on_pushButtonRefreshFiles_clicked();
 };
 
