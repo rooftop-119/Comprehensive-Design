@@ -168,8 +168,12 @@ void SerialTransport::processBuffer() {
         auto parsedFrame = m_parser.parse(frame);
         if (parsedFrame) {
             emit frameReceived(parsedFrame);
-            if(frame.size() == 7){
+            if(DataShow){
                 emit log(Logger::Type::SerialRecv, QString(frame.toHex(':')));
+            }else{
+                if(frame.size() == 7){
+                    emit log(Logger::Type::SerialRecv, QString(frame.toHex(':')));
+                }
             }
         }
     }
@@ -191,3 +195,8 @@ void SerialTransport::setState(State newState) {
         emit stateChanged(m_state);
     }
 }
+
+void SerialTransport::setDataShow(bool show){
+    this->DataShow=show;
+}
+

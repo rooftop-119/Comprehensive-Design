@@ -34,6 +34,7 @@ public:
 
     qint64 bytesReceived() const override { return m_bytesReceived; }
     qint64 bytesSent() const override { return m_bytesSent; }
+    void setDataShow(bool show);
 
 private slots:
     void onReadyRead();
@@ -52,6 +53,7 @@ private:
 
     qint64 m_bytesReceived = 0;
     qint64 m_bytesSent = 0;
+    bool DataShow = true;
 
     static const int MAX_BUFFER_SIZE = 2048;
     static const QByteArray FRAME_HEADER;

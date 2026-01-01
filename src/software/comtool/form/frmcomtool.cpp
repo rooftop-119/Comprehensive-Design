@@ -24,6 +24,7 @@
 
 #include "api/qthelper.h"
 #include "appconfig.h"
+#include "component/clickablebutton.h"
 
 frmComTool::frmComTool(QWidget *parent)
     : QWidget(parent),
@@ -109,6 +110,7 @@ void frmComTool::initializeModules() {
     // ========== 创建传输层 ==========
     m_serialTransport = new SerialTransport();
     m_fileTransport = new FileTransport(this);
+    m_serialTransport->setDataShow(AppConfig::DataShow);
 
     // ========== 创建工具类 ==========
     m_factory = new FrameFactory();
@@ -152,6 +154,9 @@ void frmComTool::initializeConnections() {
     m_logger->support(m_commander);
     m_logger->support(m_dataManager);
     m_logger->support(m_fileManager);
+
+    //connect(ui->pushButtonDraw,&ClickableButton::singleClicked,this,&frmComTool::on_pushButtonDraw_singleClicked);
+    //connect(ui->pushButtonDraw,&ClickableButton::doubleClicked,this,&frmComTool::on_pushButtonDraw_doubleClicked);
 
     // ========== 串口传输 → 分发器 ==========
     connect(m_serialTransport, &SerialTransport::frameReceived,
@@ -274,9 +279,15 @@ void frmComTool::initializeDashboardStyles() {
         "    border: 3px solid #3949ab; border-radius: 70px;"
         "}"
         );
-    m_tempDial->setRange(-40, 120);
+    m_tempDial->setRange(-5, 105);
     m_tempDial->setValue(0);
+    m_tempDial->setSingleStep(5);   // 每 5°C 一小格
+    m_tempDial->setPageStep(20);    // 每 20°C 一大格
     m_tempDial->setNotchesVisible(true);
+
+    conT = connect(m_tempDial, &QDial::valueChanged,this, [=](int value) {
+        m_dataManager->updateLCDs(0, value);
+    });
 
     // ========== 温度LCD ==========
     m_tempLcd->setStyleSheet(
@@ -299,7 +310,14 @@ void frmComTool::initializeDashboardStyles() {
         );
     m_voltDial->setRange(0, 5000);
     m_voltDial->setValue(0);
-    m_voltDial->setNotchesVisible(true);
+    // 关键设置：控制刻度密度
+    m_voltDial->setSingleStep(100);   // 小刻度每 100 单位一条（原先是1，太密了）
+    m_voltDial->setPageStep(500);     // 大刻度每 500 单位一条（可选，影响键盘翻页）
+    m_voltDial->setNotchesVisible(true);  // 现在刻度就稀疏好看了
+
+    conV = connect(m_voltDial, &QDial::valueChanged,this, [=](int value) {
+        m_dataManager->updateLCDs(value, 0);
+    });
 
     // ========== 电压LCD ==========
     m_voltLcd->setStyleSheet(
@@ -376,6 +394,17 @@ void frmComTool::updateUIState(WorkMode mode) {
         ui->pushButtonDraw->setText("开始");
         ui->pushButtonDraw->setEnabled(true);
         ui->pushButtonSend->setEnabled(false);
+
+        m_tempDial->setValue(0);
+        m_voltDial->setValue(0);
+        disconnect(conT);
+        disconnect(conV);
+        conT = connect(m_tempDial, &QDial::valueChanged,this, [=](int value) {
+            m_dataManager->updateLCDs(0, value);
+        });
+        conV = connect(m_voltDial, &QDial::valueChanged,this, [=](int value) {
+            m_dataManager->updateLCDs(value, 0);
+        });
         break;
 
     case WorkMode::SerialSampling:
@@ -389,9 +418,14 @@ void frmComTool::updateUIState(WorkMode mode) {
 
         ui->pushButtonOpen->setText("关闭串口");
         ui->pushButtonOpen->setEnabled(true);
-        ui->pushButtonDraw->setText("停止");
+        ui->pushButtonDraw->setText("暂停(双击关闭)");
         ui->pushButtonDraw->setEnabled(true);
         ui->pushButtonSend->setEnabled(true);
+
+        m_tempDial->setValue(0);
+        m_voltDial->setValue(0);
+        disconnect(conT);
+        disconnect(conV);
         break;
 
     case WorkMode::FilePlayback:
@@ -404,9 +438,14 @@ void frmComTool::updateUIState(WorkMode mode) {
         ui->comboBoxFiles->setEnabled(false);
 
         ui->pushButtonOpen->setEnabled(false);
-        ui->pushButtonDraw->setText("停止");
+        ui->pushButtonDraw->setText("暂停(双击关闭)");
         ui->pushButtonDraw->setEnabled(true);
         ui->pushButtonSend->setEnabled(false);
+
+        m_tempDial->setValue(0);
+        m_voltDial->setValue(0);
+        disconnect(conT);
+        disconnect(conV);
         break;
     }
 }
@@ -501,7 +540,7 @@ void frmComTool::onSerialError(const QString &error) {
     QMessageBox::critical(this, "串口错误", error);
 }
 
-void frmComTool::on_pushButtonDraw_clicked() {
+void frmComTool::on_pushButtonDraw_doubleClicked() {
     if (m_workMode == WorkMode::Idle) {
         // 判断是串口采样还是文件回放
         if (ui->comboBoxSampleMode->currentIndex() == 3) {
@@ -517,6 +556,37 @@ void frmComTool::on_pushButtonDraw_clicked() {
             onStopSampling();
         } else if (m_workMode == WorkMode::FilePlayback) {
             onStopPlayback();
+        }
+    }
+}
+
+void frmComTool::on_pushButtonDraw_singleClicked() {
+    if (m_workMode == WorkMode::Idle) {
+        // 判断是串口采样还是文件回放
+        if (ui->comboBoxSampleMode->currentIndex() == 3) {
+            // 历史回放
+            onStartPlayback();
+        } else {
+            // 串口采样
+            onStartSampling();
+        }
+    } else {
+        if (m_workMode == WorkMode::SerialSampling) {
+            if(ui->pushButtonDraw->text()=="暂停(双击关闭)"){
+                m_dataManager->pauseDisplay();
+                ui->pushButtonDraw->setText("恢复");
+            }else{
+                m_dataManager->resumeDisplay();
+                ui->pushButtonDraw->setText("暂停(双击关闭)");
+            }
+        } else if (m_workMode == WorkMode::FilePlayback) {
+            if(ui->pushButtonDraw->text()=="暂停(双击关闭)"){
+                m_fileTransport->pause();
+                ui->pushButtonDraw->setText("恢复");
+            }else{
+                m_fileTransport->resume();
+                ui->pushButtonDraw->setText("暂停(双击关闭)");
+            }
         }
     }
 }
@@ -727,4 +797,20 @@ void frmComTool::onBufferStatusUpdate(int used, int capacity) {
         m_logger->log(Logger::Type::System,
                       QString("警告：缓冲区使用率过高 (%1%)").arg(percentage, 0, 'f', 1));
     }
+}
+
+void frmComTool::on_pushButtonFresh_clicked(){
+    AppConfig::readConfig();
+
+    // 获取可用串口
+    QList<QSerialPortInfo> ports = QSerialPortInfo::availablePorts();
+    for (const QSerialPortInfo &port : ports) {
+        ui->comboBoxPort->addItem(port.portName());
+    }
+
+    m_serialTransport->setDataShow(AppConfig::DataShow);
+
+    loadHistoryFiles();
+
+    m_dataManager->updatePaintConf();
 }

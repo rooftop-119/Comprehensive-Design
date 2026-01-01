@@ -79,8 +79,13 @@ void DataVisualizer::setupChart() {
     // 清除现有图形
     m_plot->clearGraphs();
 
-    m_plot->setNotAntialiasedElements(QCP::aeAll);
-    m_plot->setAntialiasedElements(QCP::aeNone);
+    if(m_config.antialiasing == false){
+        m_plot->setNotAntialiasedElements(QCP::aeAll);
+        m_plot->setAntialiasedElements(QCP::aeNone);
+    }else{
+        m_plot->setAntialiasedElements(QCP::aeAll);
+        m_plot->setNotAntialiasedElements(QCP::aeNone);
+    }
 
     // 左侧电压曲线
     m_voltGraph = m_plot->addGraph(m_plot->xAxis, m_plot->yAxis);
@@ -134,6 +139,13 @@ void DataVisualizer::setupChart() {
     m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
 
     m_plot->replot();
+}
+
+void DataVisualizer::updateConf(){
+    ChartConfig newConf;
+    m_config = newConf;
+    setupChart();
+    setConfig(m_config);
 }
 
 void DataVisualizer::onUpdateTimeout() {
@@ -201,8 +213,11 @@ void DataVisualizer::updateChart(const QVector<Sample>& samples) {
 
     // 可选：自动缩放Y轴（修改这里）
     if (m_config.autoRescaleY) {
-        if (m_voltGraph) m_voltGraph->rescaleValueAxis(false, true);
-        if (m_tempGraph) m_tempGraph->rescaleValueAxis(false, true);
+        if (m_voltGraph) m_voltGraph->rescaleValueAxis(m_config.autoRescaleY_onlyEnlarge);
+        if (m_tempGraph) m_tempGraph->rescaleValueAxis(m_config.autoRescaleY_onlyEnlarge);
+    }else{
+        if (m_voltGraph) m_plot->yAxis->setRange(m_config.voltMin, m_config.voltMax);
+        if (m_tempGraph) m_plot->yAxis2->setRange(m_config.tempMin, m_config.tempMax);
     }
 
     // 高性能重绘

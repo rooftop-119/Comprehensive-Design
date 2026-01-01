@@ -58,17 +58,32 @@ void Logger::log(Type type, const QString &msg, bool clear)
     cursor.insertText(msg + "\n", dataFmt);
 
     // ---- 最大行数滚动 ----
-    QString content = board->toPlainText();
-    int lineCount = content.count('\n');
-
+    QTextCursor trimCursor(board->document());
+    int lineCount = board->document()->lineCount();  // 更准确的行数统计
     if (lineCount > maxLines) {
-        QTextCursor c = board->textCursor();
-        c.movePosition(QTextCursor::Start);
-        c.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor,
-                       lineCount - maxLines);
-        c.removeSelectedText();
-        c.deleteChar();  // 删除额外换行
+        trimCursor.movePosition(QTextCursor::Start);
+        trimCursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor, lineCount - maxLines);
+        trimCursor.removeSelectedText();
+        if (trimCursor.atBlockStart()) {
+            trimCursor.deleteChar(); // 删除多余的空行
+        }
     }
 
+    // ==================== 关键：实现自动下滑 ====================
+    // 方法1：推荐（最可靠，尊重用户是否手动滚动）
+    QScrollBar *vScrollBar = board->verticalScrollBar();
+    bool shouldAutoScroll = (vScrollBar->value() == vScrollBar->maximum() ||
+                             vScrollBar->value() >= vScrollBar->maximum() - 10);  // 容差
+
+    // 强制移动光标到末尾（确保插入在最后）
     cursor.movePosition(QTextCursor::End);
+    board->setTextCursor(cursor);
+
+    if (shouldAutoScroll) {
+        // 方式A：直接设置滚动条到底（立即生效）
+        vScrollBar->setValue(vScrollBar->maximum());
+
+        // 或者方式B：使用 ensureCursorVisible（更平滑，但有时延迟）
+        // board->ensureCursorVisible();
+    }
 }
