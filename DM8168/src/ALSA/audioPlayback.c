@@ -63,6 +63,24 @@ int audioPbInit(audioConfig *cfg) {
 
     snd_pcm_hw_params_free(hwParams);
 
+    /* 预填充静音帧：逐 period 填入，避免一次写满 Buffer 被拒 */
+    {
+        int pfPeriods = pbConfig.periods;
+        int pfFrames  = pbConfig.periodFrames;
+        int pfSamples = pfFrames * pbConfig.channels;
+        short *silence = (short *)calloc((size_t)pfSamples, sizeof(short));
+        if (silence) {
+            snd_pcm_prepare(pbHandle);
+            int i;
+            for (i = 0; i < pfPeriods; i++) {
+                snd_pcm_sframes_t w = snd_pcm_writei(pbHandle, silence,
+                    (snd_pcm_uframes_t)pfFrames);
+                if (w < 0) break;  /* Buffer 满了就停 */
+            }
+            free(silence);
+        }
+    }
+
     pbInitialized = 1;
     pbConfig.bufferBytes = AUDIO_BUFFER_SIZE(pbConfig.periodFrames);
 

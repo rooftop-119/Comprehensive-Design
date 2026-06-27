@@ -180,31 +180,37 @@ static void dspPassThrough(short *inPcm, short *outPcm, int frameCount) {
 /* ===== 流水线模式：录音 → DSP直通 → 播放 ===== */
 static audioWavFile gPipeWav;
 static int          gPipePbReady = 0;
+static audioConfig  gPipeCfg;
 
 static int pipeCapCallback(short *pcmData, int frameCount, void *userData) {
     (void)userData;
 
-    /* DSP 模拟处理 */
-    short *processedBuf = (short *)malloc(
-        (size_t)(frameCount * AUDIO_CHANNELS * sizeof(short)));
-    if (!processedBuf) return -1;
+    /* 静态缓冲区 */
+    static short processedBuf[512];
+
+    /* 延迟初始化播放：录音产出第一帧时开播放，pre-fill 后再写 */
+    if (!gPipePbReady) {
+        if (audioPbInit(&gPipeCfg) == 0) {
+            gPipePbReady = 1;
+        }
+    }
 
     dspPassThrough(pcmData, processedBuf, frameCount);
 
-    /* 写文件做记录 */
+    /* 写 WAV 文件 */
     audioWavWriteFrames(&gPipeWav, pcmData, frameCount);
 
-    /* 推送到播放 */
+    /* 推到播放 */
     if (gPipePbReady) {
         audioPbWrite(processedBuf, frameCount);
     }
 
-    free(processedBuf);
     return 0;
 }
 
 static int doPipeline(int durationSec) {
     audioConfig cfg = audioGetConfig();
+    gPipeCfg = cfg;
     int ret;
 
     printf("=== Pipeline Mode: Record → DSP(passthrough) → Play ===\n");
@@ -217,18 +223,10 @@ static int doPipeline(int durationSec) {
         return -1;
     }
 
-    /* 初始化播放 */
-    ret = audioPbInit(&cfg);
-    if (ret < 0) {
-        audioWavClose(&gPipeWav);
-        return -1;
-    }
-    gPipePbReady = 1;
-
-    /* 初始化录音 */
+    /* 先启动录音，播放在第一帧回调中延迟初始化 */
+    gPipePbReady = 0;
     ret = audioCapInit(&cfg);
     if (ret < 0) {
-        audioPbClose();
         audioWavClose(&gPipeWav);
         return -1;
     }
@@ -239,11 +237,11 @@ static int doPipeline(int durationSec) {
     audioCapStart(durationSec * 1000);
 
     /* 等待播放完毕 */
-    audioPbDrain();
+    if (gPipePbReady) audioPbDrain();
 
     /* 清理 */
     audioCapClose();
-    audioPbClose();
+    if (gPipePbReady) audioPbClose();
     audioWavClose(&gPipeWav);
     gPipePbReady = 0;
     printf("[Pipe] done, output: pipeline_out.wav\n");
