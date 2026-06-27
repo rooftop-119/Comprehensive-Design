@@ -10,15 +10,15 @@
 #include <alsa/asoundlib.h>
 
 /* ===== 目标平台选择（二选一） ===== */
-// #define PLATFORM_DM8168    /* DM8168 开发板：取消此注释 */
-#define PLATFORM_X86          /* x86 虚拟机：取消此注释 */
+#define PLATFORM_DM8168    /* DM8168 开发板：取消此注释 */
+// #define PLATFORM_X86          /* x86 虚拟机：取消此注释 */
 
 /* ===== 平台差异参数 ===== */
 #ifdef PLATFORM_DM8168
   #define AUDIO_DEV_CAPTURE      "default"
   #define AUDIO_DEV_PLAYBACK     "default"
   #define AUDIO_SAMPLE_RATE      8000
-  #define AUDIO_PERIOD_FRAMES    32
+  #define AUDIO_PERIOD_FRAMES    128
 #endif
 
 #ifdef PLATFORM_X86
