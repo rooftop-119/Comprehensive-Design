@@ -7,7 +7,7 @@ include ../products.mak
 
 .DEFAULT_GOAL := all
 
-srcs = main_dsp.c Server.c AudioAlgo.c
+srcs = main_dsp.c Server.c AudioAlgo.c dsp_algorithm.c
 objs = $(addprefix bin/$(PROFILE)/obj/,$(patsubst %.c,%.oe674,$(srcs)))
 libs = configuro/linker.cmd
 
@@ -36,7 +36,8 @@ bin/$(PROFILE)/obj/%.oe674: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) --output_file=$@ -fc $<
 
 bin/$(PROFILE)/obj/Server.oe674: AudioAlgo.h
-bin/$(PROFILE)/obj/AudioAlgo.oe674: AudioAlgo.h
+bin/$(PROFILE)/obj/AudioAlgo.oe674: AudioAlgo.h dsp_algorithm.h
+bin/$(PROFILE)/obj/dsp_algorithm.oe674: dsp_algorithm.h
 
 configuro/linker.cmd: Dsp.cfg ../shared/config.bld
 	@$(ECHO) "#"

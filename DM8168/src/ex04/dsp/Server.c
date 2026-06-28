@@ -98,6 +98,7 @@ typedef struct {
 static Int Server_recvSharedPtr(SharedRegion_SRPtr* sharedBufferPtr,
         Char** bufferPtr);
 static Int Server_handleAudioConfig(UInt32 cmd, UInt32 payload);
+static Int Server_handleAlgorithmMode(UInt32 payload);
 static Int Server_configureAudioAlgo(Void);
 static Int Server_processBuffer(Char* bufferPtr, UInt32 size);
 static UInt32 Server_waitForEvent(Event_Queue* eventQueue);
@@ -254,6 +255,20 @@ Int Server_exec()
                 goto leave;
             }
         }
+        else if (cmd == APP_CMD_ALGO_MODE) {
+            status = Server_handleAlgorithmMode(size);
+            if (status < 0) {
+                goto leave;
+            }
+
+            status = Notify_sendEvent(Module.remoteProcId, Module.lineId,
+                    Module.eventId, APP_CMD_ALGO_CFG_ACK, TRUE);
+
+            if (status < 0) {
+                Log_error0("Server_exec: Error sending algorithm config ack");
+                goto leave;
+            }
+        }
         else if (cmd == APP_CMD_PROCESSING) {
             if ((size == 0) || (size > APP_MAX_PAYLOAD_SIZE)) {
                 Log_error1("Server_exec: Invalid processing size: %d", size);
@@ -358,6 +373,38 @@ static Int Server_handleAudioConfig(UInt32 cmd, UInt32 payload)
 
     Log_print2(Diags_INFO, "Server_exec: Audio channels=%d bitDepth=%d",
             (IArg)Module.audioChannels, (IArg)Module.audioBitDepth);
+    return (0);
+}
+
+/*
+ *  ======== Server_handleAlgorithmMode ========
+ */
+static Int Server_handleAlgorithmMode(UInt32 payload)
+{
+    AudioAlgoParams params;
+    UInt32 i;
+
+    if (payload > APP_ALGO_MODE_GAIN_X2) {
+        Log_error1("Server_exec: Invalid algorithm mode: %d",
+                (IArg)payload);
+        return (-1);
+    }
+
+    params.mode = payload;
+    params.flags = (payload == APP_ALGO_MODE_PASSTHROUGH) ?
+            AUDIO_ALGO_FLAG_BYPASS : 0u;
+    params.gainQ15 = AUDIO_ALGO_GAIN_UNITY_Q15;
+    for (i = 0; i < AUDIO_ALGO_RESERVED_WORDS; i++) {
+        params.reserved[i] = 0;
+    }
+
+    if (AudioAlgo_setParams(&Module.audioAlgo, &params) < 0) {
+        Log_error0("Server_exec: Audio algorithm params failed");
+        return (-1);
+    }
+
+    Log_print1(Diags_INFO, "Server_exec: Algorithm mode=%d",
+            (IArg)payload);
     return (0);
 }
 

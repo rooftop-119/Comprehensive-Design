@@ -8,7 +8,7 @@ fi
 MODE=$1
 
 if [ "$MODE" = "file" ] && [ $# -lt 2 ]; then
-    echo "Usage: $0 file input.wav [output.wav]"
+    echo "Usage: $0 file input.wav [output.wav] [passthrough|swap|gain2]"
     exit 1
 fi
 

@@ -23,6 +23,7 @@ cfg.bufferBytes = 1024;
 cfg.sampleRate = 8000;
 cfg.channels = channels;
 cfg.bitDepth = 16;
+cfg.algorithmMode = APP_ALGO_MODE_PASSTHROUGH;
 
 if (syslinkDspInit(&cfg) < 0) {
     /* handle error */
@@ -65,8 +66,8 @@ the data size in 16 bits.
 
 ## Current DSP Behavior
 
-The paired DSP code in `dsp/Server.c` currently performs in-place passthrough:
-it leaves the shared buffer unchanged and returns `APP_CMD_OP_COMPLETE`.
+The paired DSP code in `dsp/Server.c` selects the algorithm through
+`cfg.algorithmMode`. Supported modes are `APP_ALGO_MODE_PASSTHROUGH`,
+`APP_ALGO_MODE_SWAP_STEREO`, and `APP_ALGO_MODE_GAIN_X2`.
 
-Later, member D's algorithm should replace the passthrough function with real
-PCM processing while keeping the same Notify/SharedRegion protocol.
+The processing contract is still the same Notify/SharedRegion protocol.

@@ -9,6 +9,8 @@
 #ifndef SYSLINK_DSP_H
 #define SYSLINK_DSP_H
 
+#include "../../shared/AppCommon.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -20,6 +22,7 @@ typedef struct {
     int sampleRate;            /* PCM sample rate, e.g. 8000 */
     int channels;              /* PCM channel count */
     int bitDepth;              /* PCM bits per sample */
+    int algorithmMode;         /* APP_ALGO_MODE_* */
 } syslinkDspConfig;
 
 /*

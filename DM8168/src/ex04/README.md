@@ -1,18 +1,6 @@
-本文档说明本工程如何承接成员 A 提供的 `ALSA-NEW/`，当前 ARM-DSP 音频链路如何运行，以及给 DSP 算法同学预留了哪些接口。
+# ALSA 承接情况
 
-## 1. 当前工程目标
-
-当前工程实现的是：
-
-```text
-录音/音频文件 -> ARM 用户程序 -> SysLink SharedRegion/Notify -> DSP -> ARM -> 播放/输出文件
-```
-
-当前 DSP 算法行为是 passthrough，即 DSP 收到 PCM 数据后原样返回。代码中已经保留了算法配置、参数、状态、帧上下文等结构，方便后续算法同学替换为真实处理逻辑。
-
-## 2. 对成员 A 的 ALSA-NEW 承接情况
-
-### 2.1 已承接到主工程的文件
+### 已承接到主工程的文件
 
 成员 A 的核心 ALSA 模块已经整合到 `host/audio/`：
 
@@ -33,7 +21,7 @@
 |---|---|
 | `host/audio/audioConfig.c` | 提供 `audioGetConfig()`，供 `app_host` 获取当前平台音频配置 |
 
-### 2.2 未承接到主工程的文件
+### 未承接到主工程的文件
 
 以下文件没有放入 `host/audio/`，原因是它们属于成员 A 的独立测试程序，不是主链路库代码：
 
@@ -44,7 +32,7 @@
 | `ALSA-NEW/deploy.sh` | 否 | 只服务 `audioTest_arm` 单独部署 |
 | `ALSA-NEW/README.md` | 否 | 成员 A 模块说明文档 |
 
-### 2.3 主工程在 ALSA-NEW 基础上的增强
+### 主工程在 ALSA-NEW 基础上的增强
 
 `host/audio/` 不是简单复制，已经做了适配和加固：
 
@@ -60,7 +48,7 @@
   - `dataSize % blockAlign` 校验
 - `host/app/main.c` 已经直接使用 `host/audio/` 实现 `record / audio / file` 模式。
 
-### 2.4 和成员 A 原命令的对应关系
+### 和成员 A 原命令的对应关系
 
 成员 A 原命令：
 
@@ -85,47 +73,52 @@
 - 如果只想排查声卡，可以继续单独部署 `audioTest_arm`。
 - 主工程构建不需要复制 `ALSA/` 或 `ALSA-NEW/`，只使用 `host/audio/`。
 
-## 3. 当前模块结构
+# 当前模块结构
 
 ```text
 ex04/
   host/
-    app/main.c              ARM 侧主程序，解析运行模式
-    syslink/syslinkDsp.*    ARM 侧 SysLink 封装
+    app/main.c              ARM 侧主程序，解析 smoke/record/file/audio 和算法 mode
+    syslink/syslinkDsp.*    ARM 侧 SysLink 封装，发送音频配置和 APP_ALGO_MODE_*
     audio/*                 ALSA/WAV 音频模块
     makefile                ARM app_host 构建脚本
   dsp/
-    Server.c                DSP 侧 Notify/SharedRegion 服务
-    AudioAlgo.c/.h          DSP 算法预留接口
+    Server.c                DSP 侧 Notify/SharedRegion 服务，接收算法 mode 并调用 AudioAlgo
+    AudioAlgo.c/.h          DSP 算法统一入口/适配层，保持旧 frame/config/stats 设计
+    dsp_algorithm.c/.h      算法同学提供的 S16_LE stereo helper：passthrough/swap/gain2
     main_dsp.c              DSP 入口
-    makefile                DSP server_dsp.xe674 构建脚本
+    makefile                DSP server_dsp.xe674 构建脚本，已编入 dsp_algorithm.c
   shared/
-    AppCommon.h             ARM/DSP 共用命令和 payload 定义
+    AppCommon.h             ARM/DSP 共用命令、payload 定义和 APP_ALGO_MODE_* 常量
     SystemCfg.h             Notify line/event 配置
     config.bld              DSP 平台内存配置
-  run.sh                    ARM rootfs 上运行脚本
+  run.sh                    ARM rootfs 上运行脚本，负责启动/关闭 DSP image
   makefile                  顶层构建/安装脚本
   products.mak              TI/SysLink 工具链路径配置
 ```
 
-## 4. 主程序运行模式
+# 主程序运行模式
 
-`host/app/main.c` 支持四种模式。
+`host/app/main.c` 支持四种模式。除 `record` 外，都会经过 SysLink 启动
+`server_dsp.xe674` 并调用 DSP。`smoke`、`file`、`audio` 都可以追加算法
+mode：`passthrough`、`swap`、`gain2`；不传时默认 `passthrough`。
 
-### 4.1 smoke
+### smoke
 
 用途：验证 ARM 和 DSP 的基本 SysLink 通信。
 
 命令：
 
 ```sh
-./run.sh smoke
+./run.sh smoke [passthrough|swap|gain2]
 ```
+
+The optional mode selects which DSP algorithm smoke should configure and verify.
 
 执行链路：
 
 ```text
-ARM 构造测试 PCM -> DSP passthrough -> ARM 校验返回值
+ARM 构造测试 PCM -> DSP selected algorithm -> ARM 校验返回值
 ```
 
 典型输出：
@@ -134,11 +127,11 @@ ARM 构造测试 PCM -> DSP passthrough -> ARM 校验返回值
 main: round 0, frameCount=8
 main: before DSP: ...
 main: after DSP : ...
-main: DSP passthrough verified
+main: DSP <mode> verified
 <-- main: status=0
 ```
 
-### 4.2 record
+### record
 
 用途：只录音保存 WAV，不启动 DSP。
 
@@ -170,16 +163,19 @@ main: actual record cfg ...
 <-- main: record status=0, blocks=...
 ```
 
-### 4.3 file
+### file
 
 用途：ARM 选择一个 WAV 文件，发送给 DSP 处理，再播放；可选保存 DSP 输出。
 
 命令：
 
 ```sh
-./run.sh file test.wav
-./run.sh file test.wav out.wav
+./run.sh file test.wav [passthrough|swap|gain2]
+./run.sh file test.wav out.wav [passthrough|swap|gain2]
 ```
+
+Mode argument is optional. Omit it for `passthrough`; use `swap` for stereo
+L/R swap, or `gain2` for saturated 2x S16_LE gain.
 
 执行链路：
 
@@ -198,6 +194,15 @@ WAV -> ARM -> DSP -> ARM -> ALSA Playback
 
 注意：
 
+* `swap` and `gain2` currently require S16_LE stereo PCM. The DSP-side
+  `AudioAlgo_process()` rejects non-`channels == 2` or non-`bitDepth == 16`
+  payloads for these modes, so ARM may accept the command line but processing
+  can fail at runtime if ALSA/WAV negotiation uses another format.
+* In `file` mode, the third positional argument is ambiguous with mode names.
+  `./run.sh file input.wav swap` is parsed as mode `swap`, not as an output file
+  named `swap`. To write to such a filename, pass an explicit mode too, for
+  example `./run.sh file input.wav swap passthrough`.
+
 - 输入 WAV 必须和当前平台音频配置匹配。
 - 当前 DM8168 默认配置为 8000 Hz、2 声道、16 bit。
 - WAV 读取会检查 `blockAlign / byteRate / dataSize`。
@@ -211,15 +216,17 @@ main: file block: ...
 <-- main: file status=0, blocks=...
 ```
 
-### 4.4 audio
+### audio
 
 用途：实时录音，送 DSP，返回后播放。
 
 命令：
 
 ```sh
-./run.sh audio 5
+./run.sh audio 5 [passthrough|swap|gain2]
 ```
+
+Mode argument is optional and has the same meaning as in `file` mode.
 
 执行链路：
 
@@ -251,17 +258,17 @@ main: audio block: ...
 <-- main: audio status=0, blocks=...
 ```
 
-## 5. 程序应用接口
+# 程序应用接口
 
-### 5.1 `run.sh`
+### `run.sh`
 
 `run.sh` 是 ARM rootfs 上推荐使用的运行入口。
 
 ```sh
 ./run.sh smoke
 ./run.sh record output.wav [seconds]
-./run.sh file input.wav [output.wav]
-./run.sh audio [seconds]
+./run.sh file input.wav [output.wav] [passthrough|swap|gain2]
+./run.sh audio [seconds] [passthrough|swap|gain2]
 ```
 
 行为：
@@ -277,7 +284,7 @@ slaveloader shutdown DSP
 
 `run.sh` 会检查 DSP startup 是否成功；shutdown 失败时打印 warning，但保留 `app_host` 的退出码。
 
-### 5.2 `app_host`
+### `app_host`
 
 也可以直接调用 `app_host`：
 
@@ -285,13 +292,13 @@ slaveloader shutdown DSP
 ./app_host DSP smoke
 ./app_host DSP audio 5
 ./app_host record output.wav 5
-./app_host DSP file input.wav
-./app_host DSP file input.wav output.wav
+./app_host DSP file input.wav [passthrough|swap|gain2]
+./app_host DSP file input.wav output.wav [passthrough|swap|gain2]
 ```
 
 一般不建议手动直接调 `app_host DSP ...`，因为还需要自己先启动 DSP image。使用 `run.sh` 更稳。
 
-### 5.3 Host SysLink C API
+### Host SysLink C API
 
 文件：`host/syslink/syslinkDsp.h`
 
@@ -325,6 +332,7 @@ typedef struct {
     int sampleRate;
     int channels;
     int bitDepth;
+    int algorithmMode;
 } syslinkDspConfig;
 ```
 
@@ -339,7 +347,15 @@ typedef struct {
 | `channels` | 声道数 |
 | `bitDepth` | 每 sample 位宽 |
 
-### 5.4 ALSA/WAV C API
+`algorithmMode` uses the shared constants from `shared/AppCommon.h`:
+
+| Value | Meaning |
+|---|---|
+| `APP_ALGO_MODE_PASSTHROUGH` | keep PCM unchanged |
+| `APP_ALGO_MODE_SWAP_STEREO` | swap interleaved stereo L/R samples |
+| `APP_ALGO_MODE_GAIN_X2` | saturated 2x S16_LE gain |
+
+### ALSA/WAV C API
 
 文件：`host/audio/`
 
@@ -378,7 +394,7 @@ void audioWavClose(audioWavFile *wav);
 - `audioCapInit()` 和 `audioPbInit()` 会回写 ALSA 实际参数到 `audioConfig`。
 - `audioWavReadFrames()` / `audioWavWriteFrames()` 当前仍以 `short *` 为参数，主链路默认 S16_LE。
 
-## 6. 给 DSP 算法同学的预留接口
+# 给 DSP 算法同学的预留接口
 
 DSP 算法入口在：
 
@@ -393,7 +409,7 @@ dsp/AudioAlgo.c
 AudioAlgo_process(&Module.audioAlgo, &frame);
 ```
 
-### 6.1 算法配置
+### 算法配置
 
 ```c
 typedef struct {
@@ -413,7 +429,7 @@ typedef struct {
 - `frameBytes = channels * bitDepth / 8`。
 - `maxFrameCount` 用于限制单次处理最大帧数。
 
-### 6.2 算法参数
+### 算法参数
 
 ```c
 typedef struct {
@@ -437,7 +453,7 @@ gainQ15 = AUDIO_ALGO_GAIN_UNITY_Q15;
 
 后续如果要支持降噪、滤波、增益、模式切换，可以扩展该结构。
 
-### 6.3 单帧处理上下文
+### 单帧处理上下文
 
 ```c
 typedef struct {
@@ -491,7 +507,7 @@ outputBuffer : DSP 写，ARM 读
 workBuffer   : DSP 算法临时区
 ```
 
-### 6.4 算法状态
+### 算法状态
 
 ```c
 typedef struct {
@@ -509,14 +525,18 @@ typedef struct {
 - 统计 DSP 已处理 block/frame/sample 数量。
 - 调试算法是否被调用、是否处理失败。
 
-### 6.5 算法同学主要需要改哪里
+### 算法同学主要需要改哪里
 
 当前 `AudioAlgo_process()` 是 passthrough：
 
-```c
-if (frame->outputData != frame->inputData) {
-    copy inputData to outputData;
-}
+Current implementation:
+
+```text
+AudioAlgo_process()
+  validates AudioAlgoFrame
+  copies inputData to outputData when they are separate
+  applies ctx->params.mode for S16_LE stereo modes
+  calls dsp_process_audio() for swap/gain2 helper logic
 ```
 
 后续算法同学主要替换这里：
@@ -536,9 +556,14 @@ Int AudioAlgo_process(AudioAlgoContext *ctx, AudioAlgoFrame *frame)
 - 如果算法支持更多格式，使用 `inputData/outputData`。
 - 出错返回 `-1`，DSP Server 会通知 ARM `APP_CMD_OP_FAILED`。
 
-## 7. ARM/DSP 通信协议概要
+# ARM/DSP 通信协议概要
 
 共用定义在：
+
+Current rule: keep `AudioAlgo_process()` as the integration entry point. New
+algorithm variants should either extend `AudioAlgoParams.mode` or be called from
+inside `AudioAlgo_process()` so the existing frame/config/stats contract remains
+stable.
 
 ```text
 shared/AppCommon.h
@@ -566,9 +591,9 @@ shared/AppCommon.h
 - 当前 sampleRate 限制为 `<= 65535`，8000/44100 没问题。
 - 若后续要支持 96000/192000，建议改为共享配置结构体或 RATE 高低 16 位拆包。
 
-## 8. 构建与部署指南
+# 构建与部署指南
 
-### 8.1 源码放置路径
+### 源码放置路径
 
 建议在虚拟机中放：
 
@@ -590,7 +615,7 @@ shared/AppCommon.h
 
 不需要复制根目录 `ALSA/` 或 `ALSA-NEW/` 参与主工程构建。
 
-### 8.2 配置工具链路径
+### 配置工具链路径
 
 修改：
 
@@ -609,7 +634,7 @@ CGT_C674_ELF_INSTALL_DIR
 XDC_INSTALL_DIR
 ```
 
-### 8.3 配置 ARM sysroot
+### 配置 ARM sysroot
 
 如果编译时报：
 
@@ -643,7 +668,7 @@ make ARM_SYSROOT=/home/user/ti-ezsdk_dm816x-evm_5_05_01_04/linux-devkit/arm-none
 make ARM_SYSROOT=/home/user/ti-ezsdk_dm816x-evm_5_05_01_04/filesystem/ezsdk-dm816x-evm-rootfs
 ```
 
-### 8.4 编译
+### 编译
 
 在虚拟机：
 
@@ -662,7 +687,7 @@ dsp/bin/debug/server_dsp.xe674
 dsp/bin/release/server_dsp.xe674
 ```
 
-### 8.5 安装到 NFS rootfs
+### 安装到 NFS rootfs
 
 假设 ARM rootfs 的 NFS 路径是：
 
@@ -692,7 +717,7 @@ make install EXEC_DIR=/home/root
   run.sh
 ```
 
-### 8.6 ARM 板端运行
+### ARM 板端运行
 
 进入 ARM Linux 用户空间：
 
@@ -710,7 +735,7 @@ chmod +x run.sh app_host slaveloader
 ./run.sh audio 5
 ```
 
-### 8.7 可选：部署成员 A 的 audioTest_arm
+### 可选：部署成员 A 的 audioTest_arm
 
 如果需要纯 ALSA 声卡单测，可以单独构建和部署 `audioTest_arm`。
 
@@ -729,93 +754,10 @@ chmod +x run.sh app_host slaveloader
 - 不经过 DSP
 - 不验证 SysLink
 
-## 9. 常见问题与排查
-
-### 9.1 找不到 `alsa/asoundlib.h`
-
-原因：
-
-- 没有给 host makefile 传 `ARM_SYSROOT`
-- 或 ARM sysroot 中没有 ALSA 开发头文件
-
-处理：
-
-```sh
-find /home/user/ti-ezsdk_dm816x-evm_5_05_01_04 -path '*/alsa/asoundlib.h'
-make ARM_SYSROOT=/path/to/arm/sysroot
-```
-
-### 9.2 `slaveloader startup failed`
-
-原因可能是：
-
-- DSP 镜像路径不对
-- `server_dsp.xe674` 不存在
-- SysLink 环境未加载
-- 当前目录不对
-
-确认当前目录包含：
-
-```text
-app_host
-server_dsp.xe674
-slaveloader
-run.sh
-```
-
-### 9.3 `DSP processing failed, code=1`
-
-含义：
-
-```text
-SERVER_E_BAD_PAYLOAD
-```
-
-通常是 ARM 发给 DSP 的 payload size 非法。
-
-### 9.4 `DSP processing failed, code=2`
-
-含义：
-
-```text
-SERVER_E_PROCESSING
-```
-
-通常是 DSP 算法接口返回失败，检查 `AudioAlgo_process()` 的参数校验。
-
-### 9.5 `capture/playback format mismatch`
-
-说明 ALSA 采集和播放设备实际协商出的格式不一致。
-
-当前 audio 模式要求：
-
-```text
-sampleRate 一致
-channels 一致
-bitDepth 一致
-```
-
-不一致时不会启动 DSP。
-
-### 9.6 WAV 格式不匹配
-
-`file` 模式要求输入 WAV 和当前平台音频配置匹配。
-
-当前 DM8168 默认：
-
-```text
-sampleRate = 8000
-channels   = 2
-bitDepth   = 16
-```
-
-如果 WAV 是 44100 Hz 或单声道，会被拒绝。
-
-## 10. 当前限制和后续建议
+# 当前限制和后续建议
 
 当前限制：
 
-- DSP 当前为 passthrough。
 - DSP input/output 当前共用同一块 SharedRegion buffer，属于原地处理。
 - Notify payload 数据字段为 16 bit，单次 payload 最大 65535 字节。
 - sampleRate 当前限制为 `<= 65535`。
@@ -832,24 +774,3 @@ bitDepth   = 16
 ```sh
 make ARM_SYSROOT=/path/to/sysroot CFLAGS+='-DSYSLINK_DSP_WAIT_TIMEOUT_SEC=30'
 ```
-
-## 11. 最小验收清单
-
-完成部署后，建议按顺序验收：
-
-```sh
-cd /home/root/ex04_syslink_dsp/release
-
-./run.sh smoke
-./run.sh record test.wav 5
-./run.sh file test.wav out.wav
-./run.sh audio 5
-```
-
-期望结果：
-
-- `smoke` 打印 passthrough verified。
-- `record` 生成 `test.wav`。
-- `file` 能播放 `test.wav`，可选生成 `out.wav`。
-- `audio` 能完成实时录音 -> DSP -> 播放链路。
-
