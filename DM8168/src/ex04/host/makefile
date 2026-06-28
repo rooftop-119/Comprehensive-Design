@@ -45,9 +45,9 @@ help:
 	@$(ECHO) "make                  # build host executable"
 	@$(ECHO) "make clean            # clean generated files"
 	@$(ECHO) "app_host DSP smoke    # SysLink smoke test"
-	@$(ECHO) "app_host DSP audio 5  # blocking ALSA -> DSP -> playback"
+	@$(ECHO) "app_host DSP audio 5 [passthrough|swap|gain2]  # blocking ALSA -> DSP -> playback"
 	@$(ECHO) "app_host DSP record output.wav 5  # ALSA capture -> WAV"
-	@$(ECHO) "app_host DSP file input.wav  # WAV file -> DSP -> playback"
+	@$(ECHO) "app_host DSP file input.wav [output.wav] [passthrough|swap|gain2]  # WAV file -> DSP -> playback"
 
 install:
 	@$(ECHO) "#"

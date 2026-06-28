@@ -51,6 +51,7 @@ typedef struct {
     int                 sampleRate;
     int                 channels;
     int                 bitDepth;
+    int                 algorithmMode;
     int                 audioCfgValid;
     int                 syslinkReady;
     int                 loadStarted;
@@ -65,6 +66,7 @@ static Int syslinkDspCreateNotify(Void);
 static Int syslinkDspCreateBuffer(Int bufferBytes);
 static Int syslinkDspSendSharedPtr(Void);
 static Int syslinkDspSendAudioConfig(Void);
+static Int syslinkDspSendAlgorithmMode(Void);
 static Int syslinkDspSendShutdown(Void);
 static Int syslinkDspWaitForCommand(UInt32 expectedCmd, UInt32 *eventOut);
 static UInt32 syslinkDspWaitForEvent(syslinkDspEventQueue *eventQueue);
@@ -86,6 +88,7 @@ int syslinkDspInit(const syslinkDspConfig *cfg)
     int         sampleRate = 0;
     int         channels = 0;
     int         bitDepth = 0;
+    int         algorithmMode = APP_ALGO_MODE_PASSTHROUGH;
     int         audioCfgValid = FALSE;
 
     printf("--> syslinkDspInit:\n");
@@ -112,6 +115,7 @@ int syslinkDspInit(const syslinkDspConfig *cfg)
             bitDepth = cfg->bitDepth;
             audioCfgValid = TRUE;
         }
+        algorithmMode = cfg->algorithmMode;
     }
 
     if ((bufferBytes <= 0) || (bufferBytes > APP_MAX_PAYLOAD_SIZE)) {
@@ -136,6 +140,13 @@ int syslinkDspInit(const syslinkDspConfig *cfg)
         }
     }
 
+    if ((algorithmMode < APP_ALGO_MODE_PASSTHROUGH) ||
+            (algorithmMode > APP_ALGO_MODE_GAIN_X2)) {
+        printf("syslinkDspInit: invalid algorithmMode=%d\n",
+                algorithmMode);
+        return (-1);
+    }
+
     syslinkDspResetModule();
     Module.lineId = SystemCfg_LineId;
     Module.eventId = SystemCfg_EventId;
@@ -144,6 +155,7 @@ int syslinkDspInit(const syslinkDspConfig *cfg)
     Module.sampleRate = sampleRate;
     Module.channels = channels;
     Module.bitDepth = bitDepth;
+    Module.algorithmMode = algorithmMode;
     Module.audioCfgValid = audioCfgValid;
 
     SysLink_setup();
@@ -176,9 +188,14 @@ int syslinkDspInit(const syslinkDspConfig *cfg)
         }
     }
 
+    status = syslinkDspSendAlgorithmMode();
+    if (status < 0) {
+        goto fail;
+    }
+
     Module.sharedPtrSent = TRUE;
-    printf("syslinkDspInit: ready, frameBytes=%d, bufferBytes=%d\n",
-            Module.frameBytes, Module.bufferBytes);
+    printf("syslinkDspInit: ready, frameBytes=%d, bufferBytes=%d, algorithmMode=%d\n",
+            Module.frameBytes, Module.bufferBytes, Module.algorithmMode);
     printf("<-- syslinkDspInit:\n");
     return (0);
 
@@ -519,6 +536,36 @@ static Int syslinkDspSendAudioConfig(Void)
 
     printf("syslinkDspInit: audio cfg rate=%d ch=%d bit=%d\n",
             Module.sampleRate, Module.channels, Module.bitDepth);
+    return (0);
+}
+
+/*
+ *  ======== syslinkDspSendAlgorithmMode ========
+ */
+static Int syslinkDspSendAlgorithmMode(Void)
+{
+    Int     status;
+    UInt32  event;
+    UInt32  command;
+
+    command = APP_CMD_ALGO_MODE |
+            ((UInt32)Module.algorithmMode & APP_DATA_MASK);
+    status = Notify_sendEvent(Module.remoteProcId, Module.lineId,
+            Module.eventId, command, TRUE);
+    if (status < 0) {
+        printf("syslinkDspInit: failed to send algorithm mode\n");
+        return (-1);
+    }
+
+    status = syslinkDspWaitForCommand(APP_CMD_ALGO_CFG_ACK, &event);
+    if (status < 0) {
+        printf("syslinkDspInit: unexpected algorithm mode ack 0x%x\n",
+                event);
+        return (-1);
+    }
+
+    printf("syslinkDspInit: algorithm mode=%d\n",
+            Module.algorithmMode);
     return (0);
 }
 

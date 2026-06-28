@@ -64,6 +64,12 @@ extern "C" {
 #define APP_CMD_AUDIO_CFG_RATE  0x60000000  /* cc--rrrr: sample rate */
 #define APP_CMD_AUDIO_CFG_FMT   0x61000000  /* cc--ccbb: channels, bitDepth */
 #define APP_CMD_AUDIO_CFG_ACK   0x62000000  /* cc------ */
+#define APP_CMD_ALGO_MODE       0x63000000  /* cc--mmmm: algorithm mode */
+#define APP_CMD_ALGO_CFG_ACK    0x64000000  /* cc------ */
+
+#define APP_ALGO_MODE_PASSTHROUGH   0
+#define APP_ALGO_MODE_SWAP_STEREO   1
+#define APP_ALGO_MODE_GAIN_X2       2
 
 /* program's shared region number */
 #define SHARED_REGION_1         0x1

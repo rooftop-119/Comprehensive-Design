@@ -7,6 +7,7 @@
  */
 
 #include "AudioAlgo.h"
+#include "dsp_algorithm.h"
 
 Void AudioAlgo_init(AudioAlgoContext *ctx)
 {
@@ -99,6 +100,8 @@ Int AudioAlgo_process(AudioAlgoContext *ctx, AudioAlgoFrame *frame)
     const Char *inputBytes;
     Char *outputBytes;
     UInt32 bytesPerSample;
+    Int algorithmMode;
+    Int status;
 
     if ((ctx == NULL) || (frame == NULL) ||
             (frame->inputData == NULL) || (frame->outputData == NULL) ||
@@ -125,9 +128,8 @@ Int AudioAlgo_process(AudioAlgoContext *ctx, AudioAlgoFrame *frame)
     }
 
     /*
-     * Passthrough placeholder. Algorithms may either write outputData from
-     * inputData or, when both pointers are the same, process in-place.
-     * inputPcm/outputPcm are convenience views for S16_LE algorithms.
+     * Keep the old frame contract: copy first when input/output are separate,
+     * then run S16_LE stereo algorithms in-place on outputPcm when requested.
      */
     if (frame->outputData != frame->inputData) {
         inputBytes = (const Char *)frame->inputData;
@@ -135,6 +137,28 @@ Int AudioAlgo_process(AudioAlgoContext *ctx, AudioAlgoFrame *frame)
         for (i = 0; i < frame->byteCount; i++) {
             outputBytes[i] = inputBytes[i];
         }
+    }
+
+    algorithmMode = (Int)ctx->params.mode;
+    if ((ctx->params.flags & AUDIO_ALGO_FLAG_BYPASS) != 0) {
+        algorithmMode = AUDIO_ALGO_MODE_PASSTHROUGH;
+    }
+
+    if (algorithmMode == AUDIO_ALGO_MODE_PASSTHROUGH) {
+        status = 0;
+    }
+    else if ((frame->channels != 2) || (frame->bitDepth != 16) ||
+            (frame->outputPcm == NULL)) {
+        status = -1;
+    }
+    else {
+        status = dsp_process_audio(frame->outputPcm,
+                (int)frame->frameCount, (int)algorithmMode);
+    }
+
+    if (status < 0) {
+        ctx->stats.lastStatus = -1;
+        return (-1);
     }
 
     ctx->stats.blocksProcessed++;
